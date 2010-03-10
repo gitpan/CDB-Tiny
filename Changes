@@ -1,5 +1,10 @@
 Revision history for Perl extension CDB::Tiny.
 
+0.02  Wed Mar 10 23:09:13 2010
+	- fix memory handling function (reported by Tomasz Czepiel)
+    - remove for_create option as there was no use case
+    - add documentation
+
 0.01  Sat Feb 27 12:53:40 2010
 	- original version; created by h2xs 1.23 with options
 		-A -n CDB::Tiny

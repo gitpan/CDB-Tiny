@@ -6,7 +6,7 @@ BEGIN {
     }
 }
 
-use Test::More tests => 1 + 1 + 181 * 2; # use_ok + no warnings + tests * 2
+use Test::More tests => 1 + 1 + 299 * 2; # use_ok + no warnings + tests * 2
 use Test::Exception;
 use Test::NoWarnings;
 
@@ -63,49 +63,46 @@ for my $method ( qw( open load ) ) {
         $cdb = CDB::Tiny->$method( $dbfile, for_update => "$dbfile.$$" );
     } "$method(for_update)";
 
-    eval {
-        $cdb->get("k12");
-    };
-    like( $@, qr/Database changes not written yet/,
-        "get() unavailable until updating done"
+    is( $cdb->get("k12"), 'v12',
+        'get() returns correct value'
     );
 
-    eval {
-        $cdb->getall("k12");
-    };
-    like( $@, qr/Database changes not written yet/,
-        "getall() unavailable until updating done"
+    is( join('|', $cdb->getall("k42")), 'v42|v42',
+        'getall() returns all values'
     );
 
-    eval {
-        $cdb->getlast("k12");
-    };
-    like( $@, qr/Database changes not written yet/,
-        "getlast() unavailable until updating done"
+    is( $cdb->getlast("k42"), 'v42',
+        'getlast() returns last value'
     );
 
-    eval {
-        $cdb->keys();
-    };
-    like( $@, qr/Database changes not written yet/,
-        "keys() unavailable until updating done"
+    my %cdb_orig = (
+        map {
+            my $n = $_;
+            $n = "0$n" if length($n) < 2;
+            ( "k$n" => "v$n" )
+        } ( 0 .. 99 )
+    );
+    my %cdb_orig_dups = (
+        map {
+            my $n = $_;
+            ( "k$n" => "v$n" )
+        } ( 40 .. 49, 80 .. 89 )
     );
 
-    eval {
-        $cdb->each();
-    };
-    like( $@, qr/Database changes not written yet/,
-        "each() unavailable until updating done"
+    is_deeply( 
+        { map { $_ => 1 } $cdb->keys }, { map { $_ => 1 } keys %cdb_orig },
+        "keys() returns old records"
     );
 
-    lives_ok {
-        $cdb->exists("k12")
-    } "exists() available before any changes made";
+    while ( my ($k, $v) = $cdb->each ) {
+        is( delete $cdb_orig{$k} || delete $cdb_orig_dups{$k}, $v,
+            "each() returns correct value for $k"
+        );
+    }
 
-    is( $cdb->exists("k12"), 1,
+    is( $cdb->exists("k34"), 1,
         "exists() returns true for previously existent records"
     );
-
 
     # put_*
     #
@@ -297,6 +294,7 @@ for my $method ( qw( open load ) ) {
             "each() returns correct value for $k"
         );
     }
+
     is( keys(%cdb) + keys(%cdb_dups), 0, "each() returns all records");
 
 }

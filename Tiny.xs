@@ -25,10 +25,9 @@ extern "C" {
 #define READONLY        (DOOPEN | DOLOAD)
 
 /* opts */
-#define UPDATING        1
-#define EACH_INITIALIZED 2
-#define COMMITTED       4
-#define DIED            8
+#define EACH_INITIALIZED 1
+#define COMMITTED       2
+#define DIED            4
 
 /* get mode */
 #define DOGETALL        1
@@ -132,26 +131,11 @@ static void assert_status(CDB_Tiny * self, const int method) {
             if (self->alias == DOCREATE) {
                 create_only_mode();
             }
-            else if ( self->opts & UPDATING) {
-                in_transaction();
-            }
             break;
         case METHOD_ADD:
         case METHOD_INSERT:
             if ( self->alias & WITHTEMP ) {
-                if (
-                    ( /* for_create | for_update */
-                        ! ( self->opts & UPDATING )
-                            &&
-                        ! ( self->alias & DOCREATE )
-                    )
-                    ||
-                    ( /* create && finish() */
-                        self->alias & DOCREATE
-                        &&
-                        self->opts & COMMITTED
-                    )
-                ) {
+                if ( self->opts & COMMITTED ) {
                     already_committed();
                 }
             } else {
@@ -201,24 +185,20 @@ static void commit( CDB_Tiny * self, const int save_changes, const int reopen ) 
                 fileerror(self, "replace", self->fn);
             };
 
-            if ( self->opts & UPDATING ) {
-
-                if ( reopen  && ! (self->alias == DOCREATE)) {
-                    self->fd = PerlIO_open(self->fn, "rb");
-                    if ( ! self->fd ) {
-                        fileerror(self, "open", self->fn);
-                    }
-                    if (self->alias & DOLOAD) { /* mmap to memory whole file */
-                        cdb_init(&self->cdb, PerlIO_fileno( self->fd ));
-                    }
+            if ( reopen  && ! (self->alias == DOCREATE)) {
+                self->fd = PerlIO_open(self->fn, "rb");
+                if ( ! self->fd ) {
+                    fileerror(self, "open", self->fn);
                 }
-            };
+                if (self->alias & DOLOAD) { /* mmap to memory whole file */
+                    cdb_init(&self->cdb, PerlIO_fileno( self->fd ));
+                }
+            }
         } else {
             if ( unlink(self->fntemp) != 0 ) {
                 fileerror(self, "unlink", self->fntemp);
             };
         }
-        self->opts &= ~UPDATING;
     };
 }
 static int grow_if_needed( char *var, const int vlen, int *vbufsize ) {
@@ -279,7 +259,6 @@ open(CLASS, ...)
     PREINIT:
         char *fn; /* db file */
         char *for_method; /* for_create | for_update */
-        char *fntemp; /* temp file name */
     INIT:
         if ( sv_isobject( ST(0) ) && (SvTYPE(SvRV(ST(0))) == SVt_PVMG) ) {
             croak("%s is already blessed\n", SvPV(ST(0), PL_na));
@@ -291,8 +270,6 @@ open(CLASS, ...)
             for_method = SvPV( ST(2), PL_na);
             if ( strEQ(for_method, "for_update") ) {
                 mode |= DOUPDATE;
-            } else if ( strEQ(for_method, "for_create") ) {
-                mode |= DOCREATE;
             } else {
                 croak("Invalid mode %s", for_method);
             }
@@ -312,20 +289,18 @@ open(CLASS, ...)
         RETVAL->mem.key = 0;
         RETVAL->mem.val = 0;
 
-        if ( RETVAL->alias & WITHOPEN && ! (RETVAL->alias & DOCREATE)) {
-            if ( ! (RETVAL->alias & DOCREATE) ) {
-                RETVAL->fd = PerlIO_open(RETVAL->fn, "rb");
-                if ( ! RETVAL->fd ) {
-                    fileerror(RETVAL, "open", RETVAL->fn);
-                }
-                if (RETVAL->alias & DOLOAD) /* mmap to memory whole file */
-                    cdb_init(&RETVAL->cdb, PerlIO_fileno( RETVAL->fd ));
+        if ( RETVAL->alias & WITHOPEN ) {
+            RETVAL->fd = PerlIO_open(RETVAL->fn, "rb");
+            if ( ! RETVAL->fd ) {
+                fileerror(RETVAL, "open", RETVAL->fn);
+            }
+            if (RETVAL->alias & DOLOAD) { /* mmap to memory whole file */
+                cdb_init(&RETVAL->cdb, PerlIO_fileno( RETVAL->fd ));
             }
         }
         if (RETVAL->alias & WITHTEMP) { /* create || update */
             RETVAL->fntemp = savesvpv( ST(3) );
             RETVAL->fdtemp = PerlIO_open(RETVAL->fntemp, "w+b");
-            Safefree( fntemp );
 
             if ( ! RETVAL->fdtemp ) {
                 fileerror(RETVAL, "create", RETVAL->fn);
@@ -361,8 +336,6 @@ open(CLASS, ...)
                     }
                 } else { /* open */
                     unsigned int bytes, dend;
-
-                    Off_t curpos = PerlIO_tell( RETVAL->fd );
 
                     Newx(RETVAL->mem.buf, kbufsize, char); /* allocate memory */
                     Newx(RETVAL->mem.key, kbufsize, char); /* allocate memory */
@@ -412,14 +385,12 @@ open(CLASS, ...)
                     } else {
                         fileerror(RETVAL, "read", RETVAL->fn);
                     }
-                    /* go back to original position in file */
-                    PerlIO_seek( RETVAL->fd, curpos, SEEK_SET );
+                    PerlIO_rewind( RETVAL->fd );
                     if ( PerlIO_error( RETVAL->fd ) )
                         fileerror(RETVAL, "set position", RETVAL->fn);
                 }
             }
 
-            RETVAL->opts = UPDATING;
         }
         memfree( RETVAL );
     }
@@ -502,7 +473,6 @@ exists(self, key)
     CODE:
     {
         STRLEN klen = strlen(key);
-        int vlen;
 
         if (self->alias & WITHTEMP && !( self->opts & COMMITTED)) { /* for_create | for_update | create */
             RETVAL = cdb_make_exists(&self->cdbm, key, klen);
@@ -513,8 +483,10 @@ exists(self, key)
             if (self->alias & DOLOAD) { /* tinyfile whole in memory */
                 RETVAL = cdb_find(&self->cdb, key, klen);
             } else {
+                int vlen;
                 RETVAL = cdb_seek(PerlIO_fileno(self->fd), key, klen, &vlen);
             };
+
             if ( RETVAL < 0 ) {
                 fileerror(self, "read", self->fn);
             }

@@ -11,7 +11,6 @@ t/CDB-Tiny.t
 t/create.t
 t/data.cdb
 t/mem-usage.t
-t/open-load-for-create.t
 t/open-load-for-update.t
 t/open-load.t
 META.yml                                 Module meta-data (added by MakeMaker)
