@@ -1,16 +1,11 @@
-CDB-Tiny version 0.01
+CDB-Tiny version 0.03
 =====================
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+Perl extension for TinyCDB library to cdb databases.
 
-A README file is required for CPAN modules since CPAN extracts the
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+Please note that TinyCDB needs to be installed before installing this module.
+.deb packages are available (libcdb-dev) or fetch source code from
+http://www.corpit.ru/mjt/tinycdb.html.
 
 INSTALLATION
 
@@ -21,17 +16,10 @@ To install this module type the following:
    make test
    make install
 
-DEPENDENCIES
-
-This module requires these other modules and libraries:
-
-  blah blah blah
 
 COPYRIGHT AND LICENCE
 
-Put the correct copyright and licence information here.
-
-Copyright (C) 2010 by AJGB
+Copyright (C) 2010 by Alex J. G. Burzyński, <ajgb@cpan.org>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.10.0 or,

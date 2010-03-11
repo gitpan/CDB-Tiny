@@ -6,7 +6,7 @@ BEGIN {
     }
 }
 
-use Test::More tests => 1 + 1 + 299 * 2; # use_ok + no warnings + tests * 2
+use Test::More tests => 1 + 1 + 303 * 2;
 use Test::Exception;
 use Test::NoWarnings;
 
@@ -28,7 +28,7 @@ my $dbfile = "t/data4up.cdb";
     sub new { bless {name=>__PACKAGE__}, shift };
 }
 
-open(BIN_FILE, $dbfileorig) or die "Cannot open binary file $dbfileorig: $!";
+open(BIN_FILE, "t/bin-file.cdb") or die "Cannot open binary file t/bin-file.cdb: $!";
 binmode(BIN_FILE);
 my $binary_data = '';
 {
@@ -52,13 +52,12 @@ my %refs = (
 # shared refs
 
 for my $method ( qw( open load ) ) {
-    diag $method;
+    # diag $method;
 
     cp( $dbfileorig, $dbfile )
         or die "Cannot create a copy of t/data.cdb: $!\n";
 
     my $cdb;
-
     lives_ok {
         $cdb = CDB::Tiny->$method( $dbfile, for_update => "$dbfile.$$" );
     } "$method(for_update)";
@@ -76,21 +75,27 @@ for my $method ( qw( open load ) ) {
     );
 
     my %cdb_orig = (
-        map {
-            my $n = $_;
+        (
+            map {
+                my $n = $_;
             $n = "0$n" if length($n) < 2;
-            ( "k$n" => "v$n" )
-        } ( 0 .. 99 )
+                ( "k$n" => "v$n" )
+            } ( 0 .. 99 )
+        ),
+        binary_file => $binary_data,
     );
     my %cdb_orig_dups = (
-        map {
-            my $n = $_;
-            ( "k$n" => "v$n" )
-        } ( 40 .. 49, 80 .. 89 )
+        (
+            map {
+                my $n = $_;
+                ( "k$n" => "v$n" )
+            } ( 40 .. 49, 80 .. 89 )
+        ),
+        binary_file => $binary_data,
     );
 
     is_deeply( 
-        { map { $_ => 1 } $cdb->keys }, { map { $_ => 1 } keys %cdb_orig },
+        [ sort ( $cdb->keys ) ], [ sort ( keys %cdb_orig, keys %cdb_orig_dups ) ],
         "keys() returns old records"
     );
 
@@ -261,6 +266,7 @@ for my $method ( qw( open load ) ) {
         k12 => 1 + 2,
         k21 => 2 + 1,
         k95 => 'that record already exists',
+        binary_file => $binary_data,
         binary_data => $binary_data,
     );
 
@@ -285,7 +291,7 @@ for my $method ( qw( open load ) ) {
     );
 
     is_deeply( 
-        { map { $_ => 1 } $cdb->keys }, { map { $_ => 1 } keys %cdb },
+        [ sort ( $cdb->keys ) ], [ sort ( keys %cdb, keys %cdb_dups ) ],
         "keys() returns old and new records"
     );
 
@@ -314,6 +320,7 @@ sub cdb_values {
                 ( "k$n" => "v$n" )
             } ( 0 .. 99 )
         ),
+        binary_file => $binary_data,
         binary_data => $binary_data,
         new => 'value',
         new_key1 => 'new_value1',

@@ -80,10 +80,10 @@ struct t_cdb {
     struct cdb_make cdbm;    /* cdb_make struct */
     int alias;    /* summoned to do */
     int opts;    /* options */
-    int curpos;    /* current position in file */
+    unsigned int curpos;    /* current position in file */
     int dend;    /* end position in file */
     struct {     /* container for allocated memory */
-        char *buf;
+        unsigned char *buf;
         char *key;
         char *val;
     } mem;
@@ -105,9 +105,6 @@ static void memerror(CDB_Tiny * self, const int size) {
     memfree(self);
     self->opts |= DIED;
     croak("Unable to allocate %d bytes of memory", size);
-}
-static void in_transaction() {
-    croak("Database changes not written yet - please call finish() first");
 }
 static void already_committed() {
     croak("Database changes already committed");
@@ -159,7 +156,7 @@ static void commit( CDB_Tiny * self, const int save_changes, const int reopen ) 
     if (self->opts & COMMITTED) return;
     self->opts |= COMMITTED;
 
-    if ( self->alias & WITHOPEN && ! (self->alias & DOCREATE)) {
+    if ( self->alias & WITHOPEN ) {
         if (self->alias & DOLOAD) {
             cdb_free(&self->cdb);
         }
@@ -201,7 +198,7 @@ static void commit( CDB_Tiny * self, const int save_changes, const int reopen ) 
         }
     };
 }
-static int grow_if_needed( char *var, const int vlen, int *vbufsize ) {
+static int grow_if_needed( char *var, const unsigned int vlen, unsigned int *vbufsize ) {
     if (vlen + 1 > *vbufsize) {
         Renew(var, vlen + 1, char);
         if (var == NULL) {
@@ -251,14 +248,12 @@ static int perlio_bread(PerlIO *fd, void *buf, int len) {
 MODULE = CDB::Tiny        PACKAGE = CDB::Tiny
 PROTOTYPES: ENABLE
 
+
 CDB_Tiny *
 open(CLASS, ...)
     char * CLASS
     ALIAS:
         load = DOLOAD
-    PREINIT:
-        char *fn; /* db file */
-        char *for_method; /* for_create | for_update */
     INIT:
         if ( sv_isobject( ST(0) ) && (SvTYPE(SvRV(ST(0))) == SVt_PVMG) ) {
             croak("%s is already blessed\n", SvPV(ST(0), PL_na));
@@ -267,7 +262,7 @@ open(CLASS, ...)
     {
         int mode = 0;
         if ( items == 4) {
-            for_method = SvPV( ST(2), PL_na);
+            char *for_method = SvPV( ST(2), PL_na);
             if ( strEQ(for_method, "for_update") ) {
                 mode |= DOUPDATE;
             } else {
@@ -281,7 +276,7 @@ open(CLASS, ...)
 
         RETVAL->alias = mode | ( ix ? ix : DOOPEN );
 
-        RETVAL->fn = savesvpv( ST(1) );
+        RETVAL->fn = savepv( SvPV( ST(1), PL_na ) );
         RETVAL->fntemp = 0;
         RETVAL->curpos = 0;
         RETVAL->opts = 0;
@@ -294,12 +289,12 @@ open(CLASS, ...)
             if ( ! RETVAL->fd ) {
                 fileerror(RETVAL, "open", RETVAL->fn);
             }
-            if (RETVAL->alias & DOLOAD) { /* mmap to memory whole file */
+            if (RETVAL->alias & DOLOAD) { 
                 cdb_init(&RETVAL->cdb, PerlIO_fileno( RETVAL->fd ));
             }
         }
-        if (RETVAL->alias & WITHTEMP) { /* create || update */
-            RETVAL->fntemp = savesvpv( ST(3) );
+        if (RETVAL->alias & WITHTEMP) { 
+            RETVAL->fntemp = savepv( SvPV( ST(3), PL_na ) );
             RETVAL->fdtemp = PerlIO_open(RETVAL->fntemp, "w+b");
 
             if ( ! RETVAL->fdtemp ) {
@@ -311,80 +306,90 @@ open(CLASS, ...)
             unsigned int klen = 0, vlen = 0, curpos = 0;
             if (RETVAL->alias & DOUPDATE) {
 
-                if (RETVAL->alias & DOLOAD) { /* load */
-                    Newx(RETVAL->mem.key, kbufsize, char); /* allocate memory */
-                    Newx(RETVAL->mem.val, vbufsize, char); /* allocate memory */
+                if (RETVAL->alias & DOLOAD) { 
+                    char *key, *val;
 
                     cdb_seqinit( &curpos, &RETVAL->cdb );
                     while ( cdb_seqnext(&curpos, &RETVAL->cdb) > 0 ) {
                         klen = cdb_keylen( &RETVAL->cdb );
                         vlen = cdb_datalen( &RETVAL->cdb );
 
-                        if ( ! grow_if_needed( RETVAL->mem.key, klen, &kbufsize ) ) {
-                            memerror( RETVAL, klen );
-                        };
-                        if ( ! grow_if_needed( RETVAL->mem.val, vlen, &vbufsize ) ) {
-                            memerror( RETVAL, vlen );
-                        };
+                        Newx(key, klen+1, char);
+                        Newx(val, vlen+1, char);
 
-                        cdb_read( &RETVAL->cdb, RETVAL->mem.key, klen, cdb_keypos(&RETVAL->cdb) );
-                        cdb_read( &RETVAL->cdb, RETVAL->mem.val, vlen, cdb_datapos(&RETVAL->cdb) );
+                        cdb_read( &RETVAL->cdb, key, klen, cdb_keypos(&RETVAL->cdb) );
+                        cdb_read( &RETVAL->cdb, val, vlen, cdb_datapos(&RETVAL->cdb) );
 
-                        if ( cdb_make_add(&RETVAL->cdbm, RETVAL->mem.key, klen, RETVAL->mem.val, vlen) < 0 ) {
+                        key[klen] = '\0';
+                        val[vlen] = '\0';
+                        int res = cdb_make_add(&RETVAL->cdbm, key, klen, val, vlen);
+
+                        Safefree(key);
+                        Safefree(val);
+
+                        if ( res < 0 ) {
                             fileerror(RETVAL, "update", RETVAL->fntemp);
                         }
                     }
-                } else { /* open */
+                } else { 
                     unsigned int bytes, dend;
 
-                    Newx(RETVAL->mem.buf, kbufsize, char); /* allocate memory */
-                    Newx(RETVAL->mem.key, kbufsize, char); /* allocate memory */
-                    Newx(RETVAL->mem.val, vbufsize, char); /* allocate memory */
+                    unsigned char *buf;
+                    char *key;
+                    char *val;
+                    Newx(buf, kbufsize, unsigned char); 
 
                     PerlIO_rewind( RETVAL->fd );
-                    bytes = PerlIO_read( RETVAL->fd, RETVAL->mem.buf, 2048 );
+                    bytes = PerlIO_read( RETVAL->fd, buf, 2048 );
 
                     if ( bytes == 2048 ) {
-                        dend = cdb_unpack(RETVAL->mem.buf);
+                        dend = cdb_unpack(buf);
                         curpos += bytes;
 
                         while ( curpos < dend - 8) {
-                            bytes = PerlIO_read( RETVAL->fd, RETVAL->mem.buf, 8 );
+                            bytes = PerlIO_read( RETVAL->fd, buf, 8 );
                             if ( bytes != 8 )
                                 fileerror(RETVAL, "read", RETVAL->fn);
                             curpos += bytes;
 
-                            klen = cdb_unpack(RETVAL->mem.buf);
-                            vlen = cdb_unpack(RETVAL->mem.buf + 4);
+                            klen = cdb_unpack(buf);
+                            vlen = cdb_unpack(buf + 4);
 
                             if (dend - klen < curpos || dend - vlen < curpos + klen)
                                 fileerror(RETVAL, "read", RETVAL->fn);
 
+                            Newx(key, klen+1, char); 
 
-                            if ( ! grow_if_needed( RETVAL->mem.key, klen, &kbufsize ) ) {
-                                memerror( RETVAL, klen );
-                            };
-                            if ( ! grow_if_needed( RETVAL->mem.val, vlen, &vbufsize ) ) {
-                                memerror( RETVAL, vlen );
-                            };
-
-                            bytes = PerlIO_read( RETVAL->fd, RETVAL->mem.key, klen );
+                            bytes = PerlIO_read( RETVAL->fd, key, klen );
                             if (bytes != klen) {
                                 fileerror(RETVAL, "read", RETVAL->fn);
                             };
+                            key[klen] = '\0';
                             curpos += bytes;
-                            bytes = PerlIO_read( RETVAL->fd, RETVAL->mem.val, vlen );
+
+                            Newx(val, vlen+1, char); 
+
+                            bytes = PerlIO_read( RETVAL->fd, val, vlen );
                             if (bytes != vlen) {
                                 fileerror(RETVAL, "read", RETVAL->fn);
                             };
+                            val[vlen] = '\0';
                             curpos += bytes;
-                            if ( cdb_make_add(&RETVAL->cdbm, RETVAL->mem.key, klen, RETVAL->mem.val, vlen) < 0 ) {
+
+                            int res = cdb_make_add(&RETVAL->cdbm, key, klen, val, vlen);
+
+                            Safefree(key);
+                            Safefree(val);
+
+                            if ( res < 0 ) {
+                                Safefree(buf);
                                 fileerror(RETVAL, "update", RETVAL->fntemp);
                             }
                         };
                     } else {
                         fileerror(RETVAL, "read", RETVAL->fn);
                     }
+                    Safefree(buf);
                     PerlIO_rewind( RETVAL->fd );
                     if ( PerlIO_error( RETVAL->fd ) )
                         fileerror(RETVAL, "set position", RETVAL->fn);
@@ -483,7 +488,7 @@ exists(self, key)
             if (self->alias & DOLOAD) { /* tinyfile whole in memory */
                 RETVAL = cdb_find(&self->cdb, key, klen);
             } else {
-                int vlen;
+                unsigned int vlen;
                 RETVAL = cdb_seek(PerlIO_fileno(self->fd), key, klen, &vlen);
             };
 
@@ -507,7 +512,6 @@ getall(self, key)
     PPCODE:
     {
         unsigned int kbufsize = 2048;
-        unsigned int vbufsize = 20 * 1024; /* it's a lucky guess how much data we will return */
         unsigned int klen = 0, vlen = 0;
         unsigned int lastpos = 0, lastvlen = 0;
         STRLEN searchklen = strlen(key);
@@ -543,8 +547,8 @@ getall(self, key)
             unsigned int bytes, dend, curpos = 0;
             Off_t prevpos = PerlIO_tell( self->fd );
 
-            Newx(self->mem.buf, kbufsize, char); /* allocate memory */
-            Newx(self->mem.key, kbufsize, char); /* allocate memory */
+            Newx(self->mem.buf, kbufsize, unsigned char); /* allocate memory */
+            Newx(self->mem.key, kbufsize + 1, char); /* allocate memory */
 
             PerlIO_rewind( self->fd );
             bytes = PerlIO_read( self->fd, self->mem.buf, 2048 );
@@ -573,6 +577,7 @@ getall(self, key)
                         fileerror(self, "read", self->fn);
                     };
                     curpos += bytes;
+                    self->mem.key[klen] = '\0';
 
                     if ( klen == searchklen
                         && strnEQ( self->mem.key, key, klen )
@@ -622,8 +627,8 @@ each(self)
         assert_status( self, METHOD_EACH );
     PPCODE:
     {
-        unsigned int klen = 0, vlen = 0, bufsize = 2048;
-        unsigned int kbufsize = 2048, vbufsize = 2048;
+        unsigned int klen = 0, vlen = 0;
+        unsigned int kbufsize = 2048;
         int keep_looping = 1;
 
         if ( self->alias & DOLOAD ) { /* load */
@@ -655,7 +660,7 @@ each(self)
         } else { /* open */
             unsigned int bytes;
             unsigned int klen, vlen;
-            Newx(self->mem.buf, kbufsize, char); /* allocate memory */
+            Newx(self->mem.buf, kbufsize, unsigned char); /* allocate memory */
 
             if ( !( self->opts & EACH_INITIALIZED ) ) {
                 self->curpos = 0;
@@ -743,7 +748,7 @@ keys(self)
         } else { /* open */
             unsigned int bytes, dend;
             unsigned int klen, vlen;
-            Newx(self->mem.buf, kbufsize, char); /* allocate memory */
+            Newx(self->mem.buf, kbufsize, unsigned char); /* allocate memory */
 
             Off_t prevpos = PerlIO_tell( self->fd );
             PerlIO_rewind( self->fd );
@@ -889,5 +894,4 @@ DESTROY(self)
         }
         Safefree( self );
     }
-
 

@@ -12,7 +12,7 @@ our @EXPORT_OK = ();
 
 our @EXPORT = qw();
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 require XSLoader;
 XSLoader::load('CDB::Tiny', $VERSION);
@@ -59,6 +59,8 @@ CDB::Tiny - Perl extension for TinyCDB library to cdb databases
 
 or
 
+  use CDB::Tiny;
+
   # open/load for updating - loads all existing records into temp file
   my $cdb = CDB::Tiny->open( 'my.cdb', for_update => "my.cdb.$$" );
   my $cdb = CDB::Tiny->load( 'my.cdb', for_update => "my.cdb.$$" );
@@ -103,6 +105,8 @@ or
   $cdb->finish( reopen => 0 );
 
 or
+
+  use CDB::Tiny;
 
   # create new cdb file
   my $cdb = CDB::Tiny->create( 'my-new.cdb', "my-new.cdb.$$" );

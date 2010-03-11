@@ -1,20 +1,19 @@
 --- #YAML:1.0
 name:               CDB-Tiny
-version:            0.02
+version:            0.03
 abstract:           Perl extension for TinyCDB library to cdb databases
 author:
     - Alex J. G. Burzyński <ajgb@cpan.org>
-license:            unknown
+license:            perl
 distribution_type:  module
 configure_requires:
     ExtUtils::MakeMaker:  0
 build_requires:
-    ExtUtils::MakeMaker:  0
-requires:
     Test::Exception:   0
     Test::More:        0
     Test::NoWarnings:  0
-    XSLoader:          0
+requires:
+    XSLoader:  0
 no_index:
     directory:
         - t

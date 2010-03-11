@@ -10,6 +10,7 @@ lib/CDB/Tiny.pm
 t/CDB-Tiny.t
 t/create.t
 t/data.cdb
+t/bin-file.cdb
 t/mem-usage.t
 t/open-load-for-update.t
 t/open-load.t
